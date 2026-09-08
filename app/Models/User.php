@@ -21,6 +21,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'admin_status',
     ];
 
     /**
@@ -42,4 +43,23 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
     ];
+
+    protected function casts(): array
+{
+    return [
+        'email_verified_at' => 'datetime',
+        'password' => 'hashed',
+        'admin_status' => 'boolean',
+    ];
+}
+
+public function attendanceRecords(): \Illuminate\Database\Eloquent\Relations\HasMany
+{
+    return $this->hasMany(AttendanceRecord::class);
+}
+
+public function attendanceCorrectionRequests(): \Illuminate\Database\Eloquent\Relations\HasMany
+{
+    return $this->hasMany(AttendanceCorrectionRequest::class);
+}
 }
