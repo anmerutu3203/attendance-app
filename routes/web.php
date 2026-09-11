@@ -1,7 +1,24 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Admin\AuthenticatedSessionController as AdminAuthenticatedSessionController;
 
+Route::prefix('admin')->group(function () {
+    Route::get('/login', [AdminAuthenticatedSessionController::class, 'create'])
+        ->middleware('guest:admin')
+        ->name('admin.login');
+
+    Route::post('/login', [AdminAuthenticatedSessionController::class, 'store'])
+        ->middleware('guest:admin');
+
+    Route::post('/logout', [AdminAuthenticatedSessionController::class, 'destroy'])
+        ->middleware('auth:admin')
+        ->name('admin.logout');
+});
+
+Route::middleware('auth:admin')->group(function () {
+    Route::get('/admin/_test', fn () => 'admin guard OK: ' . auth('admin')->user()->name);
+});
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -13,6 +30,4 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::get('/', function () {
-    return view('welcome');
-});
+
