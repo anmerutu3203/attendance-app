@@ -38,4 +38,5 @@ Route::middleware('auth:admin')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::get('/attendance', [AttendanceController::class, 'create'])->name('attendance.create');
     Route::post('/attendance', [AttendanceController::class, 'store'])->name('attendance.store');
+    Route::get('/attendance/list', [AttendanceController::class, 'index'])->name('attendance.index');
 });
