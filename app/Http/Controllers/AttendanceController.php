@@ -2,8 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AttendanceRecord;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class AttendanceController extends Controller
@@ -18,60 +23,89 @@ class AttendanceController extends Controller
     }
 
     public function store(Request $request): RedirectResponse
-    {
-        $user = $request->user();
-        $record = $user->attendanceRecords()->firstOrCreate(['date' => today()]);
-        $now = now()->format('H:i:s');
+{
+    $validated = $request->validate([
+        'action' => ['required', Rule::in(['clock_in', 'clock_out', 'break_in', 'break_out'])],
+    ]);
 
-        match ($request->input('action')) {
-            'clock_in' => $this->clockIn($record, $now),
-            'clock_out' => $this->clockOut($record, $now),
-            'break_in' => $this->breakIn($record, $now),
-            'break_out' => $this->breakOut($record, $now),
-            default => null,
+    $user = $request->user();
+    $now = now()->format('H:i:s');
+
+    $succeeded = DB::transaction(function () use ($user, $validated, $now) {
+        $record = $user->attendanceRecords()
+            ->where('date', today())
+            ->lockForUpdate()
+            ->first();
+
+        if (! $record) {
+            try {
+                $record = $user->attendanceRecords()->create(['date' => today()]);
+            } catch (\Illuminate\Database\QueryException $e) {
+                // 23000: 一意制約違反（user_id, date）。同時リクエストで既に作成済みのため再取得する。
+                // それ以外のDBエラーは想定外なので再スローする。
+                if ($e->getCode() !== '23000') {
+                    throw $e;
+                }
+                $record = $user->attendanceRecords()->where('date', today())->lockForUpdate()->firstOrFail();
+            }
+        }
+
+        return match ($validated['action']) {
+            'clock_in' => $record->clockIn($now),
+            'clock_out' => $record->clockOut($now),
+            'break_in' => $record->startBreak($now),
+            'break_out' => $record->endBreak($now),
         };
+    });
 
-        return redirect('/attendance');
+    return $succeeded
+        ? redirect('/attendance')->with('status', '打刻しました。')
+        : redirect('/attendance')->with('error', '現在の状態ではその操作はできません。');
+}
+
+    public function index(Request $request): View
+    {
+        $validated = $request->validate([
+            'date' => ['nullable', 'date_format:Y-m'],
+        ]);
+
+        $month = isset($validated['date'])
+            ? Carbon::createFromFormat('Y-m', $validated['date'])->startOfMonth()
+            : now()->startOfMonth();
+
+        $records = $request->user()
+            ->attendanceRecords()
+            ->whereBetween('date', [$month->copy()->startOfMonth(), $month->copy()->endOfMonth()])
+            ->with('breaks')
+            ->get()
+            ->keyBy(fn (AttendanceRecord $record) => $record->date->format('Y-m-d'));
+
+        return view('user.user-attendance-list', [
+            'date' => $month,
+            'previousMonth' => $month->copy()->subMonth()->format('Y-m'),
+            'nextMonth' => $month->copy()->addMonth()->format('Y-m'),
+            'formattedAttendanceRecords' => $this->buildMonthlyRecords($month, $records),
+        ]);
     }
 
     /**
-     * @param  \App\Models\AttendanceRecord  $record
+     * @param  \Illuminate\Support\Collection<string, \App\Models\AttendanceRecord>  $records
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
-    private function clockIn($record, string $now): void
+    private function buildMonthlyRecords(Carbon $month, Collection $records): Collection
     {
-        if (is_null($record->clock_in)) {
-            $record->update(['clock_in' => $now]);
-        }
-    }
+        return collect(range(1, $month->daysInMonth))->map(function (int $day) use ($month, $records) {
+            $current = $month->copy()->day($day);
+            $record = $records->get($current->format('Y-m-d'));
 
-    /**
-     * @param  \App\Models\AttendanceRecord  $record
-     */
-    private function clockOut($record, string $now): void
-    {
-        if (! is_null($record->clock_in) && is_null($record->clock_out)) {
-            $record->update(['clock_out' => $now]);
-        }
-    }
-
-    /**
-     * @param  \App\Models\AttendanceRecord  $record
-     */
-    private function breakIn($record, string $now): void
-    {
-        if ($record->status === '出勤中') {
-            $record->breaks()->create(['break_in' => $now]);
-        }
-    }
-
-    /**
-     * @param  \App\Models\AttendanceRecord  $record
-     */
-    private function breakOut($record, string $now): void
-    {
-        $openBreak = $record->breaks()->whereNull('break_out')->latest('id')->first();
-        if ($openBreak) {
-            $openBreak->update(['break_out' => $now]);
-        }
+            return [
+                'id' => $record?->id,
+                'date' => $current->format('Y/m/d'),
+                'clock_in' => $record?->clock_in ? Carbon::parse($record->clock_in)->format('H:i') : '',
+                'clock_out' => $record?->clock_out ? Carbon::parse($record->clock_out)->format('H:i') : '',
+                'total_break_time' => $record?->total_break_time,
+                'total_time' => $record?->total_time,
+            ];
+        });
     }
 }

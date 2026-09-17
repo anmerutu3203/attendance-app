@@ -17,6 +17,10 @@ class AttendanceCorrectionRequest extends Model
         'status', 'approved_at',
     ];
 
+    protected $casts = [
+    'approved_at' => 'datetime',
+];
+
     protected function casts(): array
     {
         return ['approved_at' => 'datetime'];
