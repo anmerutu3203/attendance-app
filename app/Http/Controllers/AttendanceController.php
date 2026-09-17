@@ -212,7 +212,49 @@ private function createCorrectionRequest(
 
 private function updateAsAdmin(AttendanceUpdateRequest $request, AttendanceRecord $attendanceRecord): RedirectResponse
 {
-    // Issue #10 で実装
-    abort(501);
+    $validated = $request->validated();
+
+    DB::transaction(function () use ($validated, $attendanceRecord) {
+        $attendanceRecord->update([
+            'clock_in' => $validated['new_clock_in'] . ':00',
+            'clock_out' => $validated['new_clock_out'] . ':00',
+            'comment' => $validated['comment'],
+        ]);
+
+        $this->syncBreaks($attendanceRecord, $validated);
+    });
+
+    return redirect('/attendance/' . $attendanceRecord->id)
+        ->with('status', '勤怠情報を修正しました。');
+}
+    
+/**
+ * @param  array<string, mixed>  $validated
+ */
+private function syncBreaks(AttendanceRecord $attendanceRecord, array $validated): void
+{
+    $existingBreaks = $attendanceRecord->breaks;
+
+    foreach ($validated['new_break_in'] ?? [] as $index => $breakIn) {
+        $breakOut = $validated['new_break_out'][$index] ?? null;
+
+        if (blank($breakIn) && blank($breakOut)) {
+            continue; // 末尾の追加用空欄行
+        }
+
+        $break = $existingBreaks->get($index);
+
+        if ($break) {
+            $break->update([
+                'break_in' => $breakIn ? $breakIn . ':00' : null,
+                'break_out' => $breakOut ? $breakOut . ':00' : null,
+            ]);
+        } else {
+            $attendanceRecord->breaks()->create([
+                'break_in' => $breakIn ? $breakIn . ':00' : null,
+                'break_out' => $breakOut ? $breakOut . ':00' : null,
+            ]);
+        }
+    }
 }
 }
