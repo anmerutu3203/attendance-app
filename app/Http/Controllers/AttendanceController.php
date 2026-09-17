@@ -10,6 +10,9 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use App\Http\Requests\AttendanceUpdateRequest;
+use App\Models\User;
+
 
 class AttendanceController extends Controller
 {
@@ -108,4 +111,108 @@ class AttendanceController extends Controller
             ];
         });
     }
+
+    public function show(Request $request, AttendanceRecord $attendanceRecord): View
+{
+    $user = $request->user();
+
+    if (! $user->admin_status && $attendanceRecord->user_id !== $user->id) {
+        abort(403);
+    }
+
+    $attendanceRecord->load(['breaks', 'user']);
+    $data = $this->formatRecordForView($attendanceRecord);
+
+    if ($user->admin_status) {
+        return view('admin.admin-detail', [
+            'user' => $attendanceRecord->user,
+            'attendanceRecord' => $data,
+        ]);
+    }
+
+    $data['application'] = $attendanceRecord->correctionRequests()
+        ->where('status', 0)
+        ->latest()
+        ->first();
+
+    return view('user.user-detail', [
+        'user' => $user,
+        'data' => $data,
+    ]);
+}
+
+public function update(AttendanceUpdateRequest $request, AttendanceRecord $attendanceRecord): RedirectResponse
+{
+    // FN030 / FN038: 承認待ちの申請がある間は一般・管理者とも修正不可
+    if ($attendanceRecord->correctionRequests()->where('status', 0)->exists()) {
+        return back()->with('error', '承認待ちのため修正はできません。');
+    }
+
+    $user = $request->user();
+
+    return $user->admin_status
+        ? $this->updateAsAdmin($request, $attendanceRecord) // Issue #10 で実装
+        : $this->createCorrectionRequest($request, $attendanceRecord, $user);
+}
+
+/**
+ * @return array<string, mixed>
+ */
+private function formatRecordForView(AttendanceRecord $attendanceRecord): array
+{
+    return [
+        'id' => $attendanceRecord->id,
+        'year' => $attendanceRecord->date->format('Y年'),
+        'date' => $attendanceRecord->date->format('n月j日'),
+        'clock_in' => $attendanceRecord->clock_in ? Carbon::parse($attendanceRecord->clock_in)->format('H:i') : '',
+        'clock_out' => $attendanceRecord->clock_out ? Carbon::parse($attendanceRecord->clock_out)->format('H:i') : '',
+        'breaks' => $attendanceRecord->breaks->map(fn (\App\Models\AttendanceBreak $break) => [
+            'break_in' => $break->break_in ? Carbon::parse($break->break_in)->format('H:i') : '',
+            'break_out' => $break->break_out ? Carbon::parse($break->break_out)->format('H:i') : '',
+        ])->all(),
+        'comment' => $attendanceRecord->comment,
+    ];
+}
+
+private function createCorrectionRequest(
+    AttendanceUpdateRequest $request,
+    AttendanceRecord $attendanceRecord,
+    User $user
+): RedirectResponse {
+    $validated = $request->validated();
+    $existingBreaks = $attendanceRecord->breaks; // インデックス = Bladeのnew_break_in[index]と対応
+
+    DB::transaction(function () use ($validated, $attendanceRecord, $user, $existingBreaks) {
+        $correctionRequest = $attendanceRecord->correctionRequests()->create([
+            'user_id' => $user->id,
+            'requested_clock_in' => $validated['new_clock_in'] . ':00',
+            'requested_clock_out' => $validated['new_clock_out'] . ':00',
+            'requested_comment' => $validated['comment'],
+            'status' => 0,
+        ]);
+
+        foreach ($validated['new_break_in'] ?? [] as $index => $breakIn) {
+            $breakOut = $validated['new_break_out'][$index] ?? null;
+
+            if (blank($breakIn) && blank($breakOut)) {
+                continue;
+            }
+
+            $correctionRequest->requestBreaks()->create([
+                'break_id' => $existingBreaks->get($index)?->id,
+                'requested_break_in' => $breakIn ? $breakIn . ':00' : null,
+                'requested_break_out' => $breakOut ? $breakOut . ':00' : null,
+            ]);
+        }
+    });
+
+    return redirect('/attendance/' . $attendanceRecord->id)
+        ->with('status', '修正申請を送信しました。');
+}
+
+private function updateAsAdmin(AttendanceUpdateRequest $request, AttendanceRecord $attendanceRecord): RedirectResponse
+{
+    // Issue #10 で実装
+    abort(501);
+}
 }
