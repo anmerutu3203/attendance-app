@@ -62,4 +62,17 @@ public function attendanceCorrectionRequests(): \Illuminate\Database\Eloquent\Re
 {
     return $this->hasMany(AttendanceCorrectionRequest::class);
 }
+
+/**
+ * 今日の勤怠ステータス（勤務外/出勤中/休憩中/退勤済）を返す
+ */
+public function getAttendanceStatusAttribute(): string
+{
+    $record = $this->attendanceRecords()
+        ->whereDate('date', today())
+        ->with('breaks')
+        ->first();
+
+    return $record?->status ?? '勤務外';
+}
 }
