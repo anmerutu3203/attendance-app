@@ -4,10 +4,11 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\IndexAttendanceRecordRequest;
+use App\Http\Requests\StoreAttendanceRecordRequest;
+use App\Http\Requests\UpdateAttendanceRecordRequest;
 use App\Http\Resources\AttendanceRecordResource;
 use App\Models\AttendanceRecord;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Carbon;
 
@@ -44,13 +45,22 @@ class AttendanceRecordController extends Controller
         return new AttendanceRecordResource($attendanceRecord);
     }
 
-    public function update(Request $request, AttendanceRecord $attendanceRecord): JsonResponse
+    public function store(StoreAttendanceRecordRequest $request): JsonResponse
+    {
+        $attendanceRecord = AttendanceRecord::create($request->validated());
+
+        return (new AttendanceRecordResource($attendanceRecord))
+            ->response()
+            ->setStatusCode(201);
+    }
+
+    public function update(UpdateAttendanceRecordRequest $request, AttendanceRecord $attendanceRecord): AttendanceRecordResource
     {
         $this->authorize('update', $attendanceRecord);
 
-        $attendanceRecord->update($request->only(['clock_in', 'clock_out', 'comment']));
+        $attendanceRecord->update($request->validated());
 
-        return response()->json($attendanceRecord);
+        return new AttendanceRecordResource($attendanceRecord);
     }
 
     public function destroy(AttendanceRecord $attendanceRecord): JsonResponse
