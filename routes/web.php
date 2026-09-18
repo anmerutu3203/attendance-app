@@ -38,6 +38,9 @@ Route::middleware('auth:admin')->group(function () {
     Route::get('/admin/attendance/list', [AdminAttendanceController::class, 'index'])->name('admin.attendance.index');
     Route::get('/admin/staff/list', [StaffController::class, 'index'])->name('admin.staff.index');
     Route::get('/admin/attendance/staff/{user}', [StaffController::class, 'show'])->name('admin.staff.show');
+
+    Route::get('/stamp_correction_request/approve/{attendanceCorrectionRequest}', [ApplicationController::class, 'showApproval'])->name('application.approve.show');
+    Route::post('/stamp_correction_request/approve/{attendanceCorrectionRequest}', [ApplicationController::class, 'approve'])->name('application.approve');
 });
 
 // 一般ユーザー機能（web ガード）
@@ -45,12 +48,14 @@ Route::middleware('auth')->group(function () {
     Route::get('/attendance', [AttendanceController::class, 'create'])->name('attendance.create');
     Route::post('/attendance', [AttendanceController::class, 'store'])->name('attendance.store');
     Route::get('/attendance/list', [AttendanceController::class, 'index'])->name('attendance.index');
-    
-     Route::get('/stamp_correction_request/list', [ApplicationController::class, 'index'])->name('application.index');
+
     Route::get('/application/{attendanceCorrectionRequest}', [ApplicationController::class, 'show'])->name('application.show');
 });
 
+// 一般/管理者で共有ルート
 Route::middleware('auth:web,admin')->group(function () {
     Route::get('/attendance/{attendanceRecord}', [AttendanceController::class, 'show'])->name('attendance.show');
     Route::post('/attendance/{attendanceRecord}', [AttendanceController::class, 'update'])->name('attendance.update');
+
+    Route::get('/stamp_correction_request/list', [ApplicationController::class, 'index'])->name('application.index');
 });
