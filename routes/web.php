@@ -5,6 +5,7 @@ use App\Http\Controllers\AttendanceController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ApplicationController;
 use App\Http\Controllers\Admin\AttendanceController as AdminAttendanceController;
+use App\Http\Controllers\Admin\StaffController;
 
 /*
 |--------------------------------------------------------------------------
@@ -35,6 +36,8 @@ Route::prefix('admin')->group(function () {
 Route::middleware('auth:admin')->group(function () {
     Route::get('/admin/_test', fn () => 'admin guard OK: ' . auth('admin')->user()->name);
     Route::get('/admin/attendance/list', [AdminAttendanceController::class, 'index'])->name('admin.attendance.index');
+    Route::get('/admin/staff/list', [StaffController::class, 'index'])->name('admin.staff.index');
+    Route::get('/admin/attendance/staff/{user}', [StaffController::class, 'show'])->name('admin.staff.show');
 });
 
 // 一般ユーザー機能（web ガード）

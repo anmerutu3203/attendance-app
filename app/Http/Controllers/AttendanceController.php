@@ -12,10 +12,15 @@ use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use App\Http\Requests\AttendanceUpdateRequest;
 use App\Models\User;
+use App\Services\MonthlyAttendanceFormatter;
 
 
 class AttendanceController extends Controller
-{
+{   
+    public function __construct(
+        private readonly MonthlyAttendanceFormatter $monthlyAttendanceFormatter
+    ) {
+    }
     public function create(Request $request): View
     {
         return view('user.attendance-register', [
@@ -87,7 +92,7 @@ class AttendanceController extends Controller
             'date' => $month,
             'previousMonth' => $month->copy()->subMonth()->format('Y-m'),
             'nextMonth' => $month->copy()->addMonth()->format('Y-m'),
-            'formattedAttendanceRecords' => $this->buildMonthlyRecords($month, $records),
+            'formattedAttendanceRecords' => $this->monthlyAttendanceFormatter->format($month, $records),
         ]);
     }
 
@@ -95,22 +100,7 @@ class AttendanceController extends Controller
      * @param  \Illuminate\Support\Collection<string, \App\Models\AttendanceRecord>  $records
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
-    private function buildMonthlyRecords(Carbon $month, Collection $records): Collection
-    {
-        return collect(range(1, $month->daysInMonth))->map(function (int $day) use ($month, $records) {
-            $current = $month->copy()->day($day);
-            $record = $records->get($current->format('Y-m-d'));
-
-            return [
-                'id' => $record?->id,
-                'date' => $current->format('Y/m/d'),
-                'clock_in' => $record?->clock_in ? Carbon::parse($record->clock_in)->format('H:i') : '',
-                'clock_out' => $record?->clock_out ? Carbon::parse($record->clock_out)->format('H:i') : '',
-                'total_break_time' => $record?->total_break_time,
-                'total_time' => $record?->total_time,
-            ];
-        });
-    }
+   
 
     public function show(Request $request, AttendanceRecord $attendanceRecord): View
 {

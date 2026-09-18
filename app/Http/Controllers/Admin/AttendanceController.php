@@ -7,7 +7,6 @@ use App\Models\AttendanceRecord;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
 class AttendanceController extends Controller
