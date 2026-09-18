@@ -19,14 +19,10 @@ class AttendanceCorrectionRequest extends Model
         'status', 'approved_at',
     ];
 
-    protected $casts = [
-    'approved_at' => 'datetime',
-];
-
-    protected function casts(): array
-    {
-        return ['approved_at' => 'datetime'];
-    }
+    /**
+     * @var array<string, string>
+     */
+    protected $casts = ['approved_at' => 'datetime'];
 
     public function attendanceRecord(): BelongsTo
     {
