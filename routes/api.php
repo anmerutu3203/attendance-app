@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AttendanceRecordController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -16,4 +17,10 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
+});
+
+Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
+    Route::put('/attendance-records/{attendanceRecord}', [AttendanceRecordController::class, 'update']);
+    Route::patch('/attendance-records/{attendanceRecord}', [AttendanceRecordController::class, 'update']);
+    Route::delete('/attendance-records/{attendanceRecord}', [AttendanceRecordController::class, 'destroy']);
 });
