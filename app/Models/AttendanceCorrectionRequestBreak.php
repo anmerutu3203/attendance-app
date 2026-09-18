@@ -24,4 +24,17 @@ class AttendanceCorrectionRequestBreak extends Model
     {
         return $this->belongsTo(AttendanceBreak::class);
     }
+
+    /**
+     * admin-application-detail ビューが期待するプロパティ名のエイリアス。
+     */
+    public function getBreakInAttribute(): ?string
+    {
+        return $this->requested_break_in;
+    }
+
+    public function getBreakOutAttribute(): ?string
+    {
+        return $this->requested_break_out;
+    }
 }
