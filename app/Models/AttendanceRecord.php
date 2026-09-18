@@ -14,14 +14,10 @@ class AttendanceRecord extends Model
 
     protected $fillable = ['user_id', 'date', 'clock_in', 'clock_out', 'comment'];
 
-    protected $casts = [
-    'date' => 'date',
-];
-
-    protected function casts(): array
-    {
-        return ['date' => 'date'];
-    }
+    /**
+     * @var array<string, string>
+     */
+    protected $casts = ['date' => 'date'];
 
     public function user(): BelongsTo
     {

@@ -2,25 +2,26 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\AttendanceUpdateRequest;
+use App\Models\AttendanceBreak;
 use App\Models\AttendanceRecord;
+use App\Models\User;
+use App\Services\MonthlyAttendanceFormatter;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
-use App\Http\Requests\AttendanceUpdateRequest;
-use App\Models\User;
-use App\Services\MonthlyAttendanceFormatter;
-
 
 class AttendanceController extends Controller
-{   
+{
     public function __construct(
         private readonly MonthlyAttendanceFormatter $monthlyAttendanceFormatter
     ) {
     }
+
     public function create(Request $request): View
     {
         return view('user.attendance-register', [
@@ -31,45 +32,45 @@ class AttendanceController extends Controller
     }
 
     public function store(Request $request): RedirectResponse
-{
-    $validated = $request->validate([
-        'action' => ['required', Rule::in(['clock_in', 'clock_out', 'break_in', 'break_out'])],
-    ]);
+    {
+        $validated = $request->validate([
+            'action' => ['required', Rule::in(['clock_in', 'clock_out', 'break_in', 'break_out'])],
+        ]);
 
-    $user = $request->user();
-    $now = now()->format('H:i:s');
+        $user = $request->user();
+        $now = now()->format('H:i:s');
 
-    $succeeded = DB::transaction(function () use ($user, $validated, $now) {
-        $record = $user->attendanceRecords()
-            ->where('date', today())
-            ->lockForUpdate()
-            ->first();
+        $succeeded = DB::transaction(function () use ($user, $validated, $now) {
+            $record = $user->attendanceRecords()
+                ->where('date', today())
+                ->lockForUpdate()
+                ->first();
 
-        if (! $record) {
-            try {
-                $record = $user->attendanceRecords()->create(['date' => today()]);
-            } catch (\Illuminate\Database\QueryException $e) {
-                // 23000: 一意制約違反（user_id, date）。同時リクエストで既に作成済みのため再取得する。
-                // それ以外のDBエラーは想定外なので再スローする。
-                if ($e->getCode() !== '23000') {
-                    throw $e;
+            if (! $record) {
+                try {
+                    $record = $user->attendanceRecords()->create(['date' => today()]);
+                } catch (QueryException $e) {
+                    // 23000: 一意制約違反（user_id, date）。同時リクエストで既に作成済みのため再取得する。
+                    // それ以外のDBエラーは想定外なので再スローする。
+                    if ($e->getCode() !== '23000') {
+                        throw $e;
+                    }
+                    $record = $user->attendanceRecords()->where('date', today())->lockForUpdate()->firstOrFail();
                 }
-                $record = $user->attendanceRecords()->where('date', today())->lockForUpdate()->firstOrFail();
             }
-        }
 
-        return match ($validated['action']) {
-            'clock_in' => $record->clockIn($now),
-            'clock_out' => $record->clockOut($now),
-            'break_in' => $record->startBreak($now),
-            'break_out' => $record->endBreak($now),
-        };
-    });
+            return match ($validated['action']) {
+                'clock_in' => $record->clockIn($now),
+                'clock_out' => $record->clockOut($now),
+                'break_in' => $record->startBreak($now),
+                'break_out' => $record->endBreak($now),
+            };
+        });
 
-    return $succeeded
-        ? redirect('/attendance')->with('status', '打刻しました。')
-        : redirect('/attendance')->with('error', '現在の状態ではその操作はできません。');
-}
+        return $succeeded
+            ? redirect('/attendance')->with('status', '打刻しました。')
+            : redirect('/attendance')->with('error', '現在の状態ではその操作はできません。');
+    }
 
     public function index(Request $request): View
     {
@@ -96,155 +97,149 @@ class AttendanceController extends Controller
         ]);
     }
 
-    /**
-     * @param  \Illuminate\Support\Collection<string, \App\Models\AttendanceRecord>  $records
-     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
-     */
-   
-
     public function show(Request $request, AttendanceRecord $attendanceRecord): View
-{
-    $user = $request->user();
+    {
+        $user = $request->user();
 
-    if (! $user->admin_status && $attendanceRecord->user_id !== $user->id) {
-        abort(403);
-    }
+        if (! $user->admin_status && $attendanceRecord->user_id !== $user->id) {
+            abort(403);
+        }
 
-    $attendanceRecord->load(['breaks', 'user']);
-    $data = $this->formatRecordForView($attendanceRecord);
+        $attendanceRecord->load(['breaks', 'user']);
+        $data = $this->formatRecordForView($attendanceRecord);
 
-    if ($user->admin_status) {
-        return view('admin.admin-detail', [
-            'user' => $attendanceRecord->user,
-            'attendanceRecord' => $data,
+        if ($user->admin_status) {
+            return view('admin.admin-detail', [
+                'user' => $attendanceRecord->user,
+                'attendanceRecord' => $data,
+            ]);
+        }
+
+        $data['application'] = $attendanceRecord->correctionRequests()
+            ->where('status', 0)
+            ->latest()
+            ->first();
+
+        return view('user.user-detail', [
+            'user' => $user,
+            'data' => $data,
         ]);
     }
 
-    $data['application'] = $attendanceRecord->correctionRequests()
-        ->where('status', 0)
-        ->latest()
-        ->first();
+    public function update(AttendanceUpdateRequest $request, AttendanceRecord $attendanceRecord): RedirectResponse
+    {
+        // FN030 / FN038: 承認待ちの申請がある間は一般・管理者とも修正不可
+        if ($attendanceRecord->correctionRequests()->where('status', 0)->exists()) {
+            return back()->with('error', '承認待ちのため修正はできません。');
+        }
 
-    return view('user.user-detail', [
-        'user' => $user,
-        'data' => $data,
-    ]);
-}
+        $user = $request->user();
 
-public function update(AttendanceUpdateRequest $request, AttendanceRecord $attendanceRecord): RedirectResponse
-{
-    // FN030 / FN038: 承認待ちの申請がある間は一般・管理者とも修正不可
-    if ($attendanceRecord->correctionRequests()->where('status', 0)->exists()) {
-        return back()->with('error', '承認待ちのため修正はできません。');
+        return $user->admin_status
+            ? $this->updateAsAdmin($request, $attendanceRecord) // Issue #10 で実装
+            : $this->createCorrectionRequest($request, $attendanceRecord, $user);
     }
 
-    $user = $request->user();
+    /**
+     * @return array<string, mixed>
+     */
+    private function formatRecordForView(AttendanceRecord $attendanceRecord): array
+    {
+        return [
+            'id' => $attendanceRecord->id,
+            'year' => $attendanceRecord->date->format('Y年'),
+            'date' => $attendanceRecord->date->format('n月j日'),
+            'clock_in' => $attendanceRecord->clock_in ? Carbon::parse($attendanceRecord->clock_in)->format('H:i') : '',
+            'clock_out' => $attendanceRecord->clock_out ? Carbon::parse($attendanceRecord->clock_out)->format('H:i') : '',
+            'breaks' => $attendanceRecord->breaks->map(fn (AttendanceBreak $break) => [
+                'break_in' => $break->break_in ? Carbon::parse($break->break_in)->format('H:i') : '',
+                'break_out' => $break->break_out ? Carbon::parse($break->break_out)->format('H:i') : '',
+            ])->all(),
+            'comment' => $attendanceRecord->comment,
+        ];
+    }
 
-    return $user->admin_status
-        ? $this->updateAsAdmin($request, $attendanceRecord) // Issue #10 で実装
-        : $this->createCorrectionRequest($request, $attendanceRecord, $user);
-}
+    private function createCorrectionRequest(
+        AttendanceUpdateRequest $request,
+        AttendanceRecord $attendanceRecord,
+        User $user
+    ): RedirectResponse {
+        $validated = $request->validated();
+        $existingBreaks = $attendanceRecord->breaks; // インデックス = Bladeのnew_break_in[index]と対応
 
-/**
- * @return array<string, mixed>
- */
-private function formatRecordForView(AttendanceRecord $attendanceRecord): array
-{
-    return [
-        'id' => $attendanceRecord->id,
-        'year' => $attendanceRecord->date->format('Y年'),
-        'date' => $attendanceRecord->date->format('n月j日'),
-        'clock_in' => $attendanceRecord->clock_in ? Carbon::parse($attendanceRecord->clock_in)->format('H:i') : '',
-        'clock_out' => $attendanceRecord->clock_out ? Carbon::parse($attendanceRecord->clock_out)->format('H:i') : '',
-        'breaks' => $attendanceRecord->breaks->map(fn (\App\Models\AttendanceBreak $break) => [
-            'break_in' => $break->break_in ? Carbon::parse($break->break_in)->format('H:i') : '',
-            'break_out' => $break->break_out ? Carbon::parse($break->break_out)->format('H:i') : '',
-        ])->all(),
-        'comment' => $attendanceRecord->comment,
-    ];
-}
+        DB::transaction(function () use ($validated, $attendanceRecord, $user, $existingBreaks) {
+            $correctionRequest = $attendanceRecord->correctionRequests()->create([
+                'user_id' => $user->id,
+                'requested_clock_in' => $validated['new_clock_in'] . ':00',
+                'requested_clock_out' => $validated['new_clock_out'] . ':00',
+                'requested_comment' => $validated['comment'],
+                'status' => 0,
+            ]);
 
-private function createCorrectionRequest(
-    AttendanceUpdateRequest $request,
-    AttendanceRecord $attendanceRecord,
-    User $user
-): RedirectResponse {
-    $validated = $request->validated();
-    $existingBreaks = $attendanceRecord->breaks; // インデックス = Bladeのnew_break_in[index]と対応
+            foreach ($validated['new_break_in'] ?? [] as $index => $breakIn) {
+                $breakOut = $validated['new_break_out'][$index] ?? null;
 
-    DB::transaction(function () use ($validated, $attendanceRecord, $user, $existingBreaks) {
-        $correctionRequest = $attendanceRecord->correctionRequests()->create([
-            'user_id' => $user->id,
-            'requested_clock_in' => $validated['new_clock_in'] . ':00',
-            'requested_clock_out' => $validated['new_clock_out'] . ':00',
-            'requested_comment' => $validated['comment'],
-            'status' => 0,
-        ]);
+                if (blank($breakIn) && blank($breakOut)) {
+                    continue;
+                }
+
+                $correctionRequest->requestBreaks()->create([
+                    'break_id' => $existingBreaks->get($index)?->id,
+                    'requested_break_in' => $breakIn ? $breakIn . ':00' : null,
+                    'requested_break_out' => $breakOut ? $breakOut . ':00' : null,
+                ]);
+            }
+        });
+
+        return redirect('/attendance/' . $attendanceRecord->id)
+            ->with('status', '修正申請を送信しました。');
+    }
+
+    private function updateAsAdmin(AttendanceUpdateRequest $request, AttendanceRecord $attendanceRecord): RedirectResponse
+    {
+        $validated = $request->validated();
+
+        DB::transaction(function () use ($validated, $attendanceRecord) {
+            $attendanceRecord->update([
+                'clock_in' => $validated['new_clock_in'] . ':00',
+                'clock_out' => $validated['new_clock_out'] . ':00',
+                'comment' => $validated['comment'],
+            ]);
+
+            $this->syncBreaks($attendanceRecord, $validated);
+        });
+
+        return redirect('/attendance/' . $attendanceRecord->id)
+            ->with('status', '勤怠情報を修正しました。');
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function syncBreaks(AttendanceRecord $attendanceRecord, array $validated): void
+    {
+        $existingBreaks = $attendanceRecord->breaks;
 
         foreach ($validated['new_break_in'] ?? [] as $index => $breakIn) {
             $breakOut = $validated['new_break_out'][$index] ?? null;
 
             if (blank($breakIn) && blank($breakOut)) {
-                continue;
+                continue; // 末尾の追加用空欄行
             }
 
-            $correctionRequest->requestBreaks()->create([
-                'break_id' => $existingBreaks->get($index)?->id,
-                'requested_break_in' => $breakIn ? $breakIn . ':00' : null,
-                'requested_break_out' => $breakOut ? $breakOut . ':00' : null,
-            ]);
-        }
-    });
+            $break = $existingBreaks->get($index);
 
-    return redirect('/attendance/' . $attendanceRecord->id)
-        ->with('status', '修正申請を送信しました。');
-}
-
-private function updateAsAdmin(AttendanceUpdateRequest $request, AttendanceRecord $attendanceRecord): RedirectResponse
-{
-    $validated = $request->validated();
-
-    DB::transaction(function () use ($validated, $attendanceRecord) {
-        $attendanceRecord->update([
-            'clock_in' => $validated['new_clock_in'] . ':00',
-            'clock_out' => $validated['new_clock_out'] . ':00',
-            'comment' => $validated['comment'],
-        ]);
-
-        $this->syncBreaks($attendanceRecord, $validated);
-    });
-
-    return redirect('/attendance/' . $attendanceRecord->id)
-        ->with('status', '勤怠情報を修正しました。');
-}
-    
-/**
- * @param  array<string, mixed>  $validated
- */
-private function syncBreaks(AttendanceRecord $attendanceRecord, array $validated): void
-{
-    $existingBreaks = $attendanceRecord->breaks;
-
-    foreach ($validated['new_break_in'] ?? [] as $index => $breakIn) {
-        $breakOut = $validated['new_break_out'][$index] ?? null;
-
-        if (blank($breakIn) && blank($breakOut)) {
-            continue; // 末尾の追加用空欄行
-        }
-
-        $break = $existingBreaks->get($index);
-
-        if ($break) {
-            $break->update([
-                'break_in' => $breakIn ? $breakIn . ':00' : null,
-                'break_out' => $breakOut ? $breakOut . ':00' : null,
-            ]);
-        } else {
-            $attendanceRecord->breaks()->create([
-                'break_in' => $breakIn ? $breakIn . ':00' : null,
-                'break_out' => $breakOut ? $breakOut . ':00' : null,
-            ]);
+            if ($break) {
+                $break->update([
+                    'break_in' => $breakIn ? $breakIn . ':00' : null,
+                    'break_out' => $breakOut ? $breakOut . ':00' : null,
+                ]);
+            } else {
+                $attendanceRecord->breaks()->create([
+                    'break_in' => $breakIn ? $breakIn . ':00' : null,
+                    'break_out' => $breakOut ? $breakOut . ':00' : null,
+                ]);
+            }
         }
     }
-}
 }

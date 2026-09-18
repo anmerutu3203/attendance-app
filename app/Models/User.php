@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -45,35 +46,26 @@ class User extends Authenticatable implements MustVerifyEmail
         'admin_status' => 'boolean',
     ];
 
-    protected function casts(): array
-{
-    return [
-        'email_verified_at' => 'datetime',
-        'password' => 'hashed',
-        'admin_status' => 'boolean',
-    ];
-}
+    public function attendanceRecords(): HasMany
+    {
+        return $this->hasMany(AttendanceRecord::class);
+    }
 
-public function attendanceRecords(): \Illuminate\Database\Eloquent\Relations\HasMany
-{
-    return $this->hasMany(AttendanceRecord::class);
-}
+    public function attendanceCorrectionRequests(): HasMany
+    {
+        return $this->hasMany(AttendanceCorrectionRequest::class);
+    }
 
-public function attendanceCorrectionRequests(): \Illuminate\Database\Eloquent\Relations\HasMany
-{
-    return $this->hasMany(AttendanceCorrectionRequest::class);
-}
+    /**
+     * 今日の勤怠ステータス（勤務外/出勤中/休憩中/退勤済）を返す
+     */
+    public function getAttendanceStatusAttribute(): string
+    {
+        $record = $this->attendanceRecords()
+            ->whereDate('date', today())
+            ->with('breaks')
+            ->first();
 
-/**
- * 今日の勤怠ステータス（勤務外/出勤中/休憩中/退勤済）を返す
- */
-public function getAttendanceStatusAttribute(): string
-{
-    $record = $this->attendanceRecords()
-        ->whereDate('date', today())
-        ->with('breaks')
-        ->first();
-
-    return $record?->status ?? '勤務外';
-}
+        return $record?->status ?? '勤務外';
+    }
 }
