@@ -42,6 +42,7 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::redirectUserForTwoFactorAuthenticationUsing(RedirectIfTwoFactorAuthenticatable::class);
         Fortify::registerView(fn () => view('user.register'));
         Fortify::loginView(fn () => view('user.user-login'));
+        Fortify::verifyEmailView(fn () => view('auth.verify-email'));
         Fortify::authenticateUsing(function (\Illuminate\Http\Request $request) {
         $user = User::where('email', $request->email)->first();
 
