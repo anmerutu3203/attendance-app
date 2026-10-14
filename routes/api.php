@@ -19,11 +19,16 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
-Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
+Route::prefix('v1')->group(function () {
+    // 読み取り系は認証不要
     Route::get('/attendance-records', [AttendanceRecordController::class, 'index']);
     Route::get('/attendance-records/{attendanceRecord}', [AttendanceRecordController::class, 'show']);
-    Route::post('/attendance-records', [AttendanceRecordController::class, 'store']);
-    Route::put('/attendance-records/{attendanceRecord}', [AttendanceRecordController::class, 'update']);
-    Route::patch('/attendance-records/{attendanceRecord}', [AttendanceRecordController::class, 'update']);
-    Route::delete('/attendance-records/{attendanceRecord}', [AttendanceRecordController::class, 'destroy']);
+
+    // 書き込み系は Sanctum 認証必須
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::post('/attendance-records', [AttendanceRecordController::class, 'store']);
+        Route::put('/attendance-records/{attendanceRecord}', [AttendanceRecordController::class, 'update']);
+        Route::patch('/attendance-records/{attendanceRecord}', [AttendanceRecordController::class, 'update']);
+        Route::delete('/attendance-records/{attendanceRecord}', [AttendanceRecordController::class, 'destroy']);
+    });
 });

@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\IndexAttendanceRecordRequest;
-use App\Http\Requests\StoreAttendanceRecordRequest;
-use App\Http\Requests\UpdateAttendanceRecordRequest;
+use App\Http\Requests\Api\V1\IndexAttendanceRecordRequest;
+use App\Http\Requests\Api\V1\StoreAttendanceRecordRequest;
+use App\Http\Requests\Api\V1\UpdateAttendanceRecordRequest;
 use App\Http\Resources\AttendanceRecordResource;
 use App\Models\AttendanceRecord;
 use Illuminate\Http\JsonResponse;
@@ -40,7 +40,7 @@ class AttendanceRecordController extends Controller
 
     public function show(AttendanceRecord $attendanceRecord): AttendanceRecordResource
     {
-        $attendanceRecord->load('breaks');
+        $attendanceRecord->load(['user', 'breaks', 'correctionRequests']);
 
         return new AttendanceRecordResource($attendanceRecord);
     }

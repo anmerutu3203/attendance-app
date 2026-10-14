@@ -16,6 +16,9 @@ class AttendanceRecordApiTest extends TestCase
     {
         $record = AttendanceRecord::factory()->create();
 
+        $this->postJson('/api/v1/attendance-records', [])
+            ->assertStatus(401)
+            ->assertExactJson(['message' => 'Unauthenticated.']);
         $this->putJson("/api/v1/attendance-records/{$record->id}", ['comment' => 'x'])
             ->assertStatus(401);
         $this->deleteJson("/api/v1/attendance-records/{$record->id}")
@@ -32,7 +35,7 @@ class AttendanceRecordApiTest extends TestCase
 
         $this->putJson("/api/v1/attendance-records/{$record->id}", ['comment' => 'hack'])
             ->assertStatus(403)
-            ->assertJson(['error' => 'この操作を行う権限がありません。']);
+            ->assertJson(['error' => 'この操作を実行する権限がありません。']);
 
         $this->deleteJson("/api/v1/attendance-records/{$record->id}")
             ->assertStatus(403);
@@ -80,21 +83,27 @@ class AttendanceRecordApiTest extends TestCase
             ->sequence(fn ($sequence) => ['date' => today()->subDays($sequence->index)])
             ->create(['user_id' => $user->id]);
 
-        Sanctum::actingAs($user);
-
+        // 読み取り系は認証不要
         $response = $this->getJson('/api/v1/attendance-records?per_page=10');
 
         $response->assertOk();
         $response->assertJsonCount(10, 'data');
         $response->assertJsonPath('meta.per_page', 10);
         $response->assertJsonPath('meta.total', 25);
+        $response->assertJsonPath('meta.current_page', 1);
+        $response->assertJsonPath('meta.last_page', 3);
         $response->assertJsonMissingPath('data.0.breaks');
+    }
+
+    public function test_index_defaults_to_20_per_page(): void
+    {
+        $this->getJson('/api/v1/attendance-records')
+            ->assertOk()
+            ->assertJsonPath('meta.per_page', 20);
     }
 
     public function test_index_rejects_a_per_page_over_the_maximum(): void
     {
-        Sanctum::actingAs(User::factory()->create());
-
         $this->getJson('/api/v1/attendance-records?per_page=101')
             ->assertStatus(422);
     }
@@ -107,8 +116,6 @@ class AttendanceRecordApiTest extends TestCase
         AttendanceRecord::factory()->create(['user_id' => $user->id, 'date' => '2026-06-10']);
         AttendanceRecord::factory()->create(['user_id' => $otherUser->id, 'date' => '2026-05-10']);
 
-        Sanctum::actingAs($user);
-
         $response = $this->getJson("/api/v1/attendance-records?user_id={$user->id}&month=2026-05");
 
         $response->assertOk();
@@ -116,25 +123,36 @@ class AttendanceRecordApiTest extends TestCase
         $response->assertJsonPath('data.0.date', '2026-05-10');
     }
 
-    public function test_show_includes_breaks(): void
+    public function test_index_can_filter_by_date(): void
+    {
+        $user = User::factory()->create();
+        AttendanceRecord::factory()->create(['user_id' => $user->id, 'date' => '2026-05-10']);
+        AttendanceRecord::factory()->create(['user_id' => $user->id, 'date' => '2026-05-11']);
+
+        $this->getJson('/api/v1/attendance-records?date=2026-05-11')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.date', '2026-05-11');
+    }
+
+    public function test_show_includes_user_breaks_and_correction_requests(): void
     {
         $user = User::factory()->create();
         $record = AttendanceRecord::factory()->create(['user_id' => $user->id]);
         $record->breaks()->create(['break_in' => '12:00:00', 'break_out' => '13:00:00']);
-
-        Sanctum::actingAs($user);
+        $record->correctionRequests()->create(['user_id' => $user->id, 'requested_comment' => '修正お願いします']);
 
         $response = $this->getJson("/api/v1/attendance-records/{$record->id}");
 
         $response->assertOk();
         $response->assertJsonCount(1, 'data.breaks');
         $response->assertJsonPath('data.breaks.0.break_in', '12:00:00');
+        $response->assertJsonPath('data.user.name', $user->name);
+        $response->assertJsonPath('data.correction_requests.0.requested_comment', '修正お願いします');
     }
 
     public function test_show_returns_404_for_a_missing_record(): void
     {
-        Sanctum::actingAs(User::factory()->create());
-
         $this->getJson('/api/v1/attendance-records/999999')
             ->assertStatus(404)
             ->assertJson(['error' => '勤怠情報が見つかりませんでした。']);
@@ -148,8 +166,8 @@ class AttendanceRecordApiTest extends TestCase
         $response = $this->postJson('/api/v1/attendance-records', [
             'user_id' => $user->id,
             'date' => '2026-01-15',
-            'clock_in' => '09:00',
-            'clock_out' => '18:00',
+            'clock_in' => '09:00:00',
+            'clock_out' => '18:00:00',
             'comment' => 'テスト',
         ]);
 
@@ -160,6 +178,54 @@ class AttendanceRecordApiTest extends TestCase
         ]);
     }
 
+    public function test_store_allows_omitting_clock_out(): void
+    {
+        Sanctum::actingAs(User::factory()->create());
+
+        $this->postJson('/api/v1/attendance-records', ['date' => '2026-01-15', 'clock_in' => '09:00:00'])
+            ->assertCreated()
+            ->assertJsonPath('data.clock_out', null);
+    }
+
+    public function test_a_non_admin_cannot_store_a_record_for_another_user(): void
+    {
+        $user = User::factory()->create();
+        $otherUser = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/v1/attendance-records', [
+            'user_id' => $otherUser->id,
+            'date' => '2026-01-15',
+            'clock_in' => '09:00:00',
+        ])->assertCreated()->assertJsonPath('data.user_id', $user->id);
+    }
+
+    public function test_store_returns_japanese_validation_messages(): void
+    {
+        Sanctum::actingAs(User::factory()->create());
+
+        $this->postJson('/api/v1/attendance-records', [])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors([
+                'date' => '勤怠日は必須です。',
+                'clock_in' => '出勤時刻は必須です。',
+            ]);
+
+        $this->postJson('/api/v1/attendance-records', [
+            'date' => '2026/01/15',
+            'clock_in' => '09:00',
+            'clock_out' => '18時',
+            'comment' => str_repeat('a', 256),
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors([
+                'date' => '勤怠日は YYYY-MM-DD 形式で指定してください。',
+                'clock_in' => '出勤時刻は HH:MM:SS 形式で指定してください。',
+                'clock_out' => '退勤時刻は HH:MM:SS 形式で指定してください。',
+                'comment' => '備考は 255 文字以内で入力してください。',
+            ]);
+    }
+
     public function test_store_rejects_clock_out_before_clock_in(): void
     {
         $user = User::factory()->create();
@@ -168,12 +234,12 @@ class AttendanceRecordApiTest extends TestCase
         $response = $this->postJson('/api/v1/attendance-records', [
             'user_id' => $user->id,
             'date' => '2026-01-15',
-            'clock_in' => '19:00',
-            'clock_out' => '18:00',
+            'clock_in' => '19:00:00',
+            'clock_out' => '18:00:00',
         ]);
 
         $response->assertStatus(422);
-        $response->assertJsonValidationErrors('clock_out');
+        $response->assertJsonValidationErrors(['clock_out' => '退勤時刻は出勤時刻より後の時刻を指定してください。']);
     }
 
     public function test_store_rejects_a_duplicate_date_for_the_same_user(): void
@@ -185,12 +251,12 @@ class AttendanceRecordApiTest extends TestCase
         $response = $this->postJson('/api/v1/attendance-records', [
             'user_id' => $user->id,
             'date' => '2026-01-15',
-            'clock_in' => '09:00',
-            'clock_out' => '18:00',
+            'clock_in' => '09:00:00',
+            'clock_out' => '18:00:00',
         ]);
 
         $response->assertStatus(422);
-        $response->assertJsonValidationErrors('date');
+        $response->assertJsonValidationErrors(['date' => 'この日付の勤怠は既に登録されています。']);
     }
 
     public function test_update_supports_partial_fields(): void
@@ -206,6 +272,17 @@ class AttendanceRecordApiTest extends TestCase
         $response->assertOk();
         $this->assertSame('部分更新のみ', $record->fresh()->comment);
         $this->assertSame('09:00:00', $record->fresh()->clock_in);
+    }
+
+    public function test_update_rejects_clock_out_before_the_existing_clock_in(): void
+    {
+        $user = User::factory()->create();
+        $record = AttendanceRecord::factory()->create(['user_id' => $user->id, 'clock_in' => '09:00:00']);
+        Sanctum::actingAs($user);
+
+        $this->patchJson("/api/v1/attendance-records/{$record->id}", ['clock_out' => '08:00:00'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['clock_out' => '退勤時刻は出勤時刻より後の時刻を指定してください。']);
     }
 
     public function test_update_keeping_the_same_date_does_not_trigger_the_unique_rule(): void
