@@ -48,8 +48,9 @@ Route::prefix('admin')->group(function () {
 
 // 管理者機能（admin ガード）
 Route::middleware('auth:admin')->group(function () {
-    Route::get('/admin/_test', fn () => 'admin guard OK: ' . auth('admin')->user()->name);
     Route::get('/admin/attendance/list', [AdminAttendanceController::class, 'index'])->name('admin.attendance.index');
+    Route::get('/admin/attendance/{attendanceRecord}', [AttendanceController::class, 'show'])->whereNumber('attendanceRecord')->name('admin.attendance.show');
+    Route::post('/admin/attendance/{attendanceRecord}', [AttendanceController::class, 'update'])->whereNumber('attendanceRecord')->name('admin.attendance.update');
     Route::get('/admin/staff/list', [StaffController::class, 'index'])->name('admin.staff.index');
     Route::get('/admin/attendance/staff/{user}', [StaffController::class, 'show'])->name('admin.staff.show');
     Route::post('/export', [StaffController::class, 'exportCsv'])->name('admin.staff.export');
@@ -64,14 +65,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/attendance', [AttendanceController::class, 'store'])->name('attendance.store');
     Route::get('/attendance/list', [AttendanceController::class, 'index'])->name('attendance.index');
     Route::get('/attendance/report', [ReportController::class, 'index'])->name('attendance.report');
+    Route::get('/attendance/detail/{attendanceRecord}', [AttendanceController::class, 'show'])->name('attendance.show');
+    Route::post('/attendance/detail/{attendanceRecord}', [AttendanceController::class, 'update'])->name('attendance.update');
 
     Route::get('/application/{attendanceCorrectionRequest}', [ApplicationController::class, 'show'])->name('application.show');
 });
 
 // 一般/管理者で共有ルート
 Route::middleware('auth:web,admin')->group(function () {
-    Route::get('/attendance/{attendanceRecord}', [AttendanceController::class, 'show'])->name('attendance.show');
-    Route::post('/attendance/{attendanceRecord}', [AttendanceController::class, 'update'])->name('attendance.update');
-
     Route::get('/stamp_correction_request/list', [ApplicationController::class, 'index'])->name('application.index');
 });
