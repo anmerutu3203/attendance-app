@@ -19,6 +19,19 @@ use App\Http\Controllers\ReportController;
 |
 */
 
+// ヘッダーロゴのリンク先。ログイン状態に応じて振り分ける
+Route::get('/', function () {
+    if (auth('admin')->check()) {
+        return redirect('/admin/attendance/list');
+    }
+
+    if (auth()->check()) {
+        return redirect('/attendance');
+    }
+
+    return redirect('/login');
+});
+
 // 管理者認証（admin ガード）
 Route::prefix('admin')->group(function () {
     Route::get('/login', [AdminAuthenticatedSessionController::class, 'create'])

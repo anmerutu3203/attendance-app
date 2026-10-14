@@ -41,7 +41,7 @@ class Handler extends ExceptionHandler
     {
         if ($request->is('api/*')) {
             if ($e instanceof AuthorizationException) {
-                return response()->json(['error' => 'この操作を行う権限がありません。'], 403);
+                return response()->json(['error' => 'この操作を実行する権限がありません。'], 403);
             }
 
             if ($e instanceof ModelNotFoundException || $e instanceof NotFoundHttpException) {
@@ -58,7 +58,7 @@ class Handler extends ExceptionHandler
     protected function unauthenticated($request, AuthenticationException $exception): JsonResponse|RedirectResponse
     {
         if ($request->is('api/*')) {
-            return response()->json(['message' => '認証されていません。'], 401);
+            return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
         return parent::unauthenticated($request, $exception);
