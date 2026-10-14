@@ -40,7 +40,7 @@ class ApplicationController extends Controller
     }
 
     /**
-     * 申請詳細への遷移。実体は紐づく勤怠詳細画面（/attendance/{id}）へのリダイレクト。
+     * 申請詳細への遷移。実体は紐づく勤怠詳細画面（/attendance/detail/{id}）へのリダイレクト。
      * FN033: 「詳細」を押下すると勤怠詳細画面に遷移すること
      */
     public function show(Request $request, AttendanceCorrectionRequest $attendanceCorrectionRequest): RedirectResponse
@@ -52,7 +52,7 @@ class ApplicationController extends Controller
             403
         );
 
-        return redirect('/attendance/' . $attendanceCorrectionRequest->attendance_record_id);
+        return redirect('/attendance/detail/' . $attendanceCorrectionRequest->attendance_record_id);
     }
 
     /**

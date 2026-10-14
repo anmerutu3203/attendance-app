@@ -191,7 +191,7 @@ class AttendanceController extends Controller
             }
         });
 
-        return redirect('/attendance/' . $attendanceRecord->id)
+        return redirect('/attendance/detail/' . $attendanceRecord->id)
             ->with('status', '修正申請を送信しました。');
     }
 
@@ -209,7 +209,7 @@ class AttendanceController extends Controller
             $this->syncBreaks($attendanceRecord, $validated);
         });
 
-        return redirect('/attendance/' . $attendanceRecord->id)
+        return redirect('/admin/attendance/' . $attendanceRecord->id)
             ->with('status', '勤怠情報を修正しました。');
     }
 

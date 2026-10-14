@@ -16,7 +16,7 @@ class AttendanceDetailAndCorrectionTest extends TestCase
         $user = User::factory()->create();
         $record = AttendanceRecord::factory()->create(['user_id' => $user->id]);
 
-        $response = $this->actingAs($user)->get('/attendance/' . $record->id);
+        $response = $this->actingAs($user)->get('/attendance/detail/' . $record->id);
 
         $response->assertOk();
     }
@@ -27,7 +27,7 @@ class AttendanceDetailAndCorrectionTest extends TestCase
         $otherUser = User::factory()->create();
         $record = AttendanceRecord::factory()->create(['user_id' => $owner->id]);
 
-        $response = $this->actingAs($otherUser)->get('/attendance/' . $record->id);
+        $response = $this->actingAs($otherUser)->get('/attendance/detail/' . $record->id);
 
         $response->assertForbidden();
     }
@@ -38,7 +38,7 @@ class AttendanceDetailAndCorrectionTest extends TestCase
         $owner = User::factory()->create();
         $record = AttendanceRecord::factory()->create(['user_id' => $owner->id]);
 
-        $response = $this->actingAs($admin)->get('/attendance/' . $record->id);
+        $response = $this->actingAs($admin, 'admin')->get('/admin/attendance/' . $record->id);
 
         $response->assertOk();
     }
@@ -52,7 +52,7 @@ class AttendanceDetailAndCorrectionTest extends TestCase
             'clock_out' => '18:00:00',
         ]);
 
-        $response = $this->actingAs($user)->post('/attendance/' . $record->id, [
+        $response = $this->actingAs($user)->post('/attendance/detail/' . $record->id, [
             'new_clock_in' => '09:30',
             'new_clock_out' => '18:30',
             'new_break_in' => ['12:00'],
@@ -60,7 +60,7 @@ class AttendanceDetailAndCorrectionTest extends TestCase
             'comment' => '電車遅延のため',
         ]);
 
-        $response->assertRedirect('/attendance/' . $record->id);
+        $response->assertRedirect('/attendance/detail/' . $record->id);
         $this->assertDatabaseHas('attendance_correction_requests', [
             'attendance_record_id' => $record->id,
             'user_id' => $user->id,
@@ -68,6 +68,21 @@ class AttendanceDetailAndCorrectionTest extends TestCase
         ]);
         // 申請はまだ承認されていないので、勤怠自体は変更されない
         $this->assertSame('09:00:00', $record->fresh()->clock_in);
+    }
+
+    public function test_an_admin_update_redirects_back_to_the_admin_detail_page(): void
+    {
+        $admin = User::factory()->create(['admin_status' => true]);
+        $record = AttendanceRecord::factory()->create(['clock_in' => '09:00:00', 'clock_out' => '18:00:00']);
+
+        $response = $this->actingAs($admin, 'admin')->post('/admin/attendance/' . $record->id, [
+            'new_clock_in' => '10:00',
+            'new_clock_out' => '19:00',
+            'comment' => '管理者による修正',
+        ]);
+
+        $response->assertRedirect('/admin/attendance/' . $record->id);
+        $this->assertSame('10:00:00', $record->fresh()->clock_in);
     }
 
     public function test_a_record_with_a_pending_request_cannot_be_edited_again(): void
@@ -82,7 +97,7 @@ class AttendanceDetailAndCorrectionTest extends TestCase
             'status' => 0,
         ]);
 
-        $response = $this->actingAs($user)->post('/attendance/' . $record->id, [
+        $response = $this->actingAs($user)->post('/attendance/detail/' . $record->id, [
             'new_clock_in' => '10:00',
             'new_clock_out' => '19:00',
             'comment' => '再申請',
@@ -96,7 +111,7 @@ class AttendanceDetailAndCorrectionTest extends TestCase
         $user = User::factory()->create();
         $record = AttendanceRecord::factory()->create(['user_id' => $user->id]);
 
-        $response = $this->from('/attendance/' . $record->id)->actingAs($user)->post('/attendance/' . $record->id, [
+        $response = $this->from('/attendance/detail/' . $record->id)->actingAs($user)->post('/attendance/detail/' . $record->id, [
             'new_clock_in' => '19:00',
             'new_clock_out' => '09:00',
             'comment' => '不正な時間',

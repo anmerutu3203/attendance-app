@@ -29,28 +29,40 @@ erDiagram
     attendance_records ||--o{ breaks : "含む"
     attendance_records ||--o{ attendance_correction_requests : "対象になる"
     attendance_correction_requests ||--o{ attendance_correction_request_breaks : "含む"
-    breaks ||--o{ attendance_correction_request_breaks : "参照される"
+    breaks |o--o{ attendance_correction_request_breaks : "参照される"
+    users ||--o{ personal_access_tokens : "発行する"
 
     users {
         bigint id PK
-        string name
-        string email
+        varchar name
+        varchar email UK
+        timestamp email_verified_at
         boolean admin_status
-        string password
+        varchar password
+        text two_factor_secret
+        text two_factor_recovery_codes
+        timestamp two_factor_confirmed_at
+        varchar remember_token
+        timestamp created_at
+        timestamp updated_at
     }
     attendance_records {
         bigint id PK
-        bigint user_id FK
-        date date
+        bigint user_id FK "UK(user_id, date)"
+        date date "UK(user_id, date)"
         time clock_in
         time clock_out
-        string comment
+        varchar comment
+        timestamp created_at
+        timestamp updated_at
     }
     breaks {
         bigint id PK
         bigint attendance_record_id FK
         time break_in
         time break_out
+        timestamp created_at
+        timestamp updated_at
     }
     attendance_correction_requests {
         bigint id PK
@@ -58,16 +70,46 @@ erDiagram
         bigint user_id FK
         time requested_clock_in
         time requested_clock_out
-        string requested_comment
-        tinyint status
+        varchar requested_comment
+        tinyint status "0:承認待ち 1:承認済み"
         timestamp approved_at
+        timestamp created_at
+        timestamp updated_at
     }
     attendance_correction_request_breaks {
         bigint id PK
         bigint attendance_correction_request_id FK
-        bigint break_id FK
+        bigint break_id FK "NULL可"
         time requested_break_in
         time requested_break_out
+        timestamp created_at
+        timestamp updated_at
+    }
+    personal_access_tokens {
+        bigint id PK
+        varchar tokenable_type
+        bigint tokenable_id
+        varchar name
+        varchar token UK
+        text abilities
+        timestamp last_used_at
+        timestamp expires_at
+        timestamp created_at
+        timestamp updated_at
+    }
+    password_reset_tokens {
+        varchar email PK
+        varchar token
+        timestamp created_at
+    }
+    failed_jobs {
+        bigint id PK
+        varchar uuid UK
+        text connection
+        text queue
+        longtext payload
+        longtext exception
+        timestamp failed_at
     }
 ```
 
