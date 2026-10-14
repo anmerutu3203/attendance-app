@@ -18,7 +18,7 @@ class AttendanceRecordController extends Controller
     {
         $validated = $request->validated();
 
-        $query = AttendanceRecord::query();
+        $query = AttendanceRecord::with(['user', 'breaks']);
 
         if (! empty($validated['user_id'])) {
             $query->where('user_id', $validated['user_id']);
@@ -33,7 +33,7 @@ class AttendanceRecordController extends Controller
             $query->whereBetween('date', [$month->copy()->startOfMonth(), $month->copy()->endOfMonth()]);
         }
 
-        $records = $query->orderBy('date')->paginate($validated['per_page'] ?? 20);
+        $records = $query->latest('date')->paginate($validated['per_page'] ?? 20);
 
         return AttendanceRecordResource::collection($records);
     }
@@ -47,7 +47,8 @@ class AttendanceRecordController extends Controller
 
     public function store(StoreAttendanceRecordRequest $request): JsonResponse
     {
-        $attendanceRecord = AttendanceRecord::create($request->validated());
+        $attendanceRecord = $request->user()->attendanceRecords()->create($request->validated());
+        $attendanceRecord->load(['user', 'breaks']);
 
         return (new AttendanceRecordResource($attendanceRecord))
             ->response()
@@ -59,6 +60,7 @@ class AttendanceRecordController extends Controller
         $this->authorize('update', $attendanceRecord);
 
         $attendanceRecord->update($request->validated());
+        $attendanceRecord->load(['user', 'breaks']);
 
         return new AttendanceRecordResource($attendanceRecord);
     }

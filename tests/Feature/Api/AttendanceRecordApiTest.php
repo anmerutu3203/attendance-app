@@ -92,7 +92,10 @@ class AttendanceRecordApiTest extends TestCase
         $response->assertJsonPath('meta.total', 25);
         $response->assertJsonPath('meta.current_page', 1);
         $response->assertJsonPath('meta.last_page', 3);
-        $response->assertJsonMissingPath('data.0.breaks');
+        // 新しい日付順で、ユーザー名付き。修正申請は一覧では出力されない
+        $response->assertJsonPath('data.0.date', today()->format('Y-m-d'));
+        $response->assertJsonPath('data.0.user_name', $user->name);
+        $response->assertJsonMissingPath('data.0.applications');
     }
 
     public function test_index_defaults_to_20_per_page(): void
@@ -135,10 +138,14 @@ class AttendanceRecordApiTest extends TestCase
             ->assertJsonPath('data.0.date', '2026-05-11');
     }
 
-    public function test_show_includes_user_breaks_and_correction_requests(): void
+    public function test_show_includes_user_breaks_applications_and_total_times(): void
     {
         $user = User::factory()->create();
-        $record = AttendanceRecord::factory()->create(['user_id' => $user->id]);
+        $record = AttendanceRecord::factory()->create([
+            'user_id' => $user->id,
+            'clock_in' => '09:00:00',
+            'clock_out' => '18:00:00',
+        ]);
         $record->breaks()->create(['break_in' => '12:00:00', 'break_out' => '13:00:00']);
         $record->correctionRequests()->create(['user_id' => $user->id, 'requested_comment' => '修正お願いします']);
 
@@ -148,7 +155,9 @@ class AttendanceRecordApiTest extends TestCase
         $response->assertJsonCount(1, 'data.breaks');
         $response->assertJsonPath('data.breaks.0.break_in', '12:00:00');
         $response->assertJsonPath('data.user.name', $user->name);
-        $response->assertJsonPath('data.correction_requests.0.requested_comment', '修正お願いします');
+        $response->assertJsonPath('data.applications.0.requested_comment', '修正お願いします');
+        $response->assertJsonPath('data.total_time', '08:00');
+        $response->assertJsonPath('data.total_break_time', '01:00');
     }
 
     public function test_show_returns_404_for_a_missing_record(): void
@@ -164,7 +173,6 @@ class AttendanceRecordApiTest extends TestCase
         Sanctum::actingAs($user);
 
         $response = $this->postJson('/api/v1/attendance-records', [
-            'user_id' => $user->id,
             'date' => '2026-01-15',
             'clock_in' => '09:00:00',
             'clock_out' => '18:00:00',
@@ -172,6 +180,8 @@ class AttendanceRecordApiTest extends TestCase
         ]);
 
         $response->assertCreated();
+        $response->assertJsonPath('data.user_name', $user->name);
+        $response->assertJsonPath('data.breaks', []);
         $this->assertDatabaseHas('attendance_records', [
             'user_id' => $user->id,
             'comment' => 'テスト',
@@ -187,17 +197,17 @@ class AttendanceRecordApiTest extends TestCase
             ->assertJsonPath('data.clock_out', null);
     }
 
-    public function test_a_non_admin_cannot_store_a_record_for_another_user(): void
+    public function test_store_ignores_user_id_and_uses_the_authenticated_user(): void
     {
-        $user = User::factory()->create();
+        $admin = User::factory()->create(['admin_status' => true]);
         $otherUser = User::factory()->create();
-        Sanctum::actingAs($user);
+        Sanctum::actingAs($admin);
 
         $this->postJson('/api/v1/attendance-records', [
             'user_id' => $otherUser->id,
             'date' => '2026-01-15',
             'clock_in' => '09:00:00',
-        ])->assertCreated()->assertJsonPath('data.user_id', $user->id);
+        ])->assertCreated()->assertJsonPath('data.user_id', $admin->id);
     }
 
     public function test_store_returns_japanese_validation_messages(): void
@@ -232,7 +242,6 @@ class AttendanceRecordApiTest extends TestCase
         Sanctum::actingAs($user);
 
         $response = $this->postJson('/api/v1/attendance-records', [
-            'user_id' => $user->id,
             'date' => '2026-01-15',
             'clock_in' => '19:00:00',
             'clock_out' => '18:00:00',
@@ -249,7 +258,6 @@ class AttendanceRecordApiTest extends TestCase
         Sanctum::actingAs($user);
 
         $response = $this->postJson('/api/v1/attendance-records', [
-            'user_id' => $user->id,
             'date' => '2026-01-15',
             'clock_in' => '09:00:00',
             'clock_out' => '18:00:00',
